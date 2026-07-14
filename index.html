@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural Sound Synthesis · Part 2 — Autoregressive Waveform Models</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root {
+  --bg: #0a0b0f;
+  --bg2: #12141c;
+  --bg3: #1a1d2a;
+  --fg: #d4d6e0;
+  --fg-dim: #8a8d9a;
+  --accent: #4a9de8;
+  --accent2: #8b7bf0;
+  --accent3: #5ce89a;
+  --accent4: #e85a7a;
+  --accent5: #e8a44a;
+  --border: #2a2d3a;
+  --glow: rgba(74,199,232,0.15);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:16px}
+body{background:var(--bg);color:var(--fg);font-family:'Palatino Linotype','Book Antiqua',Palatino,'Georgia',serif;line-height:1.75;overflow-x:hidden}
+::selection{background:var(--accent);color:var(--bg)}
+a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent;transition:border-color .2s}
+a:hover{border-bottom-color:var(--accent)}
+
+header{min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:2rem;position:relative;overflow:hidden}
+header canvas{position:absolute;top:0;left:0;width:100%;height:100%;z-index:0;opacity:.5}
+header .content{position:relative;z-index:1;max-width:880px}
+header .eyebrow{font-family:'Lucida Console',Monaco,monospace;font-size:.8rem;letter-spacing:.3em;text-transform:uppercase;color:var(--accent2);margin-bottom:1.4em}
+header h1{font-size:clamp(2rem,5vw,3.4rem);font-weight:300;letter-spacing:.04em;color:var(--accent);text-shadow:0 0 60px rgba(74,199,232,.3);margin-bottom:.3em}
+header h1 em{font-style:italic;color:var(--fg);font-weight:400}
+header .subtitle{font-size:1.12rem;color:var(--fg-dim);max-width:680px;margin:0 auto 2em}
+header .people{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;margin-bottom:2em}
+header .people span{font-size:.85rem;color:var(--fg);padding:.35em .9em;border:1px solid var(--border);border-radius:2px;background:rgba(26,29,42,.7)}
+header .cta{display:flex;gap:.8rem;justify-content:center;flex-wrap:wrap}
+
+nav#toc{position:sticky;top:0;z-index:100;background:rgba(10,11,15,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:.6rem 1rem;overflow-x:auto;white-space:nowrap;text-align:center}
+nav#toc a{display:inline-block;font-size:.78rem;color:var(--fg-dim);padding:.3em .7em;margin:0 .1em;letter-spacing:.04em;text-transform:uppercase;font-family:'Lucida Console',Monaco,monospace;transition:color .2s;border-bottom:none}
+nav#toc a:hover,nav#toc a.active{color:var(--accent)}
+
+section{max-width:920px;margin:0 auto;padding:4rem 1.5rem;border-bottom:1px solid var(--border)}
+section:last-of-type{border-bottom:none}
+h2{font-size:clamp(1.5rem,3vw,2.2rem);font-weight:300;color:var(--accent);margin-bottom:.3em;letter-spacing:.03em}
+h2 .num{font-family:'Lucida Console',Monaco,monospace;font-size:.7em;color:var(--fg-dim);margin-right:.5em}
+h3{font-size:1.2rem;color:var(--accent2);margin:2em 0 .5em;font-weight:400}
+h4{font-size:1rem;color:var(--accent3);margin:1.5em 0 .3em;font-weight:400}
+p{margin-bottom:1.2em}
+ul,ol{padding-left:1.4em;margin-bottom:1.2em}
+li{margin-bottom:.5em}
+.lead{font-size:1.08rem;color:var(--fg);margin-bottom:1.5em}
+
+.viz{margin:2em 0;background:var(--bg2);border:1px solid var(--border);border-radius:4px;overflow:hidden}
+.viz canvas{display:block;width:100%;cursor:crosshair}
+.viz-caption{font-size:.8rem;color:var(--fg-dim);padding:.6em 1em;border-top:1px solid var(--border);font-family:'Lucida Console',Monaco,monospace}
+
+.controls{display:flex;flex-wrap:wrap;gap:.8rem;padding:.8em 1em;background:var(--bg3);border-top:1px solid var(--border);align-items:center}
+.controls label{font-size:.78rem;color:var(--fg-dim);font-family:'Lucida Console',Monaco,monospace;display:flex;align-items:center;gap:.4em}
+.controls input[type="range"]{width:120px;accent-color:var(--accent)}
+.controls select{background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:.3em .5em;font-size:.78rem;border-radius:2px;font-family:inherit}
+.controls button,.btn{background:var(--accent);color:var(--bg);border:none;padding:.45em 1em;font-size:.78rem;font-family:'Lucida Console',Monaco,monospace;cursor:pointer;border-radius:2px;letter-spacing:.03em;transition:background .2s}
+.controls button:hover,.btn:hover{background:#6fd4ef}
+.btn-outline{background:transparent;border:1px solid var(--accent);color:var(--accent)}
+.btn-outline:hover{background:var(--accent);color:var(--bg)}
+.controls .val{color:var(--accent);font-family:'Lucida Console',monospace;font-size:.78rem;min-width:2.5em;display:inline-block}
+.tabrow{display:flex;gap:.3em;flex-wrap:wrap}
+.tabrow button{background:var(--bg);border:1px solid var(--border);color:var(--fg-dim)}
+.tabrow button.on{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+
+.math{display:block;text-align:center;padding:1.4em 1.2em;margin:1.5em 0;background:var(--bg2);border-left:3px solid var(--accent);font-size:1.1rem;color:var(--fg);overflow-x:auto;border-radius:0 4px 4px 0}
+.math .katex{font-size:1.2em}
+.math-inline .katex{font-size:1.0em}
+
+.timeline{position:relative;padding:1em 0 1em 2em;margin:2em 0}
+.timeline::before{content:'';position:absolute;left:.6em;top:0;bottom:0;width:2px;background:var(--border)}
+.timeline-item{position:relative;margin-bottom:1.8em;padding-left:1.5em}
+.timeline-item::before{content:'';position:absolute;left:-1.95em;top:.4em;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--bg)}
+.timeline-year{font-family:'Lucida Console',Monaco,monospace;color:var(--accent);font-size:.85rem;margin-bottom:.2em}
+.timeline-text{font-size:.95rem;color:var(--fg-dim)}
+.timeline-text strong{color:var(--fg)}
+
+blockquote{border-left:3px solid var(--accent5);padding:.8em 1.2em;margin:1.5em 0;color:var(--fg-dim);font-style:italic;background:rgba(232,164,74,.05)}
+blockquote cite{display:block;font-size:.85rem;color:var(--accent5);margin-top:.5em;font-style:normal}
+
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1.5em;margin:1.5em 0}
+@media(max-width:700px){.grid-2{grid-template-columns:1fr}}
+
+.references{margin-top:2em;padding:1.5em;background:var(--bg2);border:1px solid var(--border);border-radius:4px}
+.references h3{margin-top:0}
+.references ol{padding-left:1.5em}
+.references li{font-size:.85rem;color:var(--fg-dim);margin-bottom:.5em;line-height:1.5}
+.references li em{color:var(--fg)}
+
+footer{text-align:center;padding:3em 1.5em;color:var(--fg-dim);font-size:.85rem;border-top:1px solid var(--border)}
+footer a{color:var(--accent2)}
+
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--fg-dim)}
+
+.expandable{margin:1.5em 0;border:1px solid var(--border);border-radius:4px;overflow:hidden}
+.expandable summary{padding:.8em 1.2em;background:var(--bg3);cursor:pointer;font-size:.9rem;color:var(--accent2);font-family:'Lucida Console',Monaco,monospace;letter-spacing:.03em;list-style:none;display:flex;align-items:center;gap:.5em}
+.expandable summary::before{content:'>';font-size:.7em;transition:transform .2s}
+details[open] summary::before{transform:rotate(90deg)}
+.expandable summary:hover{color:var(--fg)}
+.expandable .inner{padding:1.2em 1.4em;background:rgba(139,123,240,.04)}
+.expandable .inner p:last-child{margin-bottom:0}
+
+.note{font-size:.9rem;color:var(--fg-dim);margin:1em 0;padding:.6em 1em;border-left:2px solid var(--accent3);background:rgba(92,232,154,.05)}
+.warn{font-size:.9rem;color:var(--fg-dim);margin:1em 0;padding:.6em 1em;border-left:2px solid var(--accent4);background:rgba(232,90,122,.05)}
+.note strong,.warn strong{color:var(--fg)}
+
+table{width:100%;border-collapse:collapse;margin:1.5em 0;font-size:.9rem}
+th,td{padding:.5em .8em;border:1px solid var(--border);text-align:left;vertical-align:top}
+th{background:var(--bg3);color:var(--accent2);font-weight:400;font-family:'Lucida Console',Monaco,monospace;font-size:.76rem;letter-spacing:.03em}
+td{color:var(--fg-dim)}
+td code,p code,li code{font-family:'Lucida Console',Monaco,monospace;font-size:.85em;color:var(--accent3);background:rgba(92,232,154,.07);padding:.05em .3em;border-radius:2px}
+
+.xref{display:flex;flex-wrap:wrap;gap:.6em;margin:1.5em 0}
+.xref a{font-size:.8rem;padding:.5em 1em;border:1px solid var(--border);background:var(--bg3);font-family:'Lucida Console',Monaco,monospace;color:var(--fg-dim);border-bottom:none;border-radius:3px;transition:all .2s}
+.xref a:hover{color:var(--accent);border-color:var(--accent)}
+.xref a .k{display:block;font-size:.62rem;letter-spacing:.12em;color:var(--accent);margin-bottom:.2em}
+
+.pill{display:inline-block;font-family:'Lucida Console',monospace;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;padding:.15em .55em;border-radius:2px;border:1px solid var(--border);color:var(--fg-dim);margin-left:.4em;vertical-align:middle}
+</style>
+</head>
+<body>
+
+<header>
+  <canvas id="heroCanvas"></canvas>
+  <div class="content">
+    <div class="eyebrow">Neural Sound Synthesis &middot; Part 2 of 12</div>
+    <h1>Autoregressive <em>Waveform</em> Models</h1>
+    <p class="subtitle">
+      In 2016 WaveNet did the thing everyone thought was too expensive: it modelled raw
+      audio one sample at a time. This part unpacks how — the factorisation that makes it
+      exact, the dilated-convolution stack that gives it memory, the gated residual block
+      at its heart, and the μ-law softmax at its mouth — and confronts the price of doing
+      it: one strictly-ordered forward pass per sample. Three live demos throughout.
+    </p>
+    <div class="people">
+      <span>WaveNet</span><span>SampleRNN</span><span>WaveRNN</span>
+      <span>tanh &#8857; &sigma;</span><span>p(x)=&prod; p(x&#8345;&#124;x&#8342;&#8342;)</span>
+    </div>
+    <div class="cta">
+      <a href="#ar" class="btn">Begin &#8595;</a>
+      <a href="https://brendanjameslynskey.github.io/Neural_Sound_Synthesis/" class="btn btn-outline" target="_blank" rel="noopener">Series hub</a>
+    </div>
+  </div>
+</header>
+
+<nav id="toc">
+  <a href="#ar">1 &middot; Autoregression</a>
+  <a href="#dilation">2 &middot; Dilated Causal</a>
+  <a href="#block">3 &middot; Residual Block</a>
+  <a href="#output">4 &middot; μ-law Softmax</a>
+  <a href="#sampling">5 &middot; Sampling</a>
+  <a href="#cost">6 &middot; The Cost</a>
+  <a href="#successors">7 &middot; Successors</a>
+  <a href="#timeline">8 &middot; Timeline</a>
+  <a href="#next">Next</a>
+</nav>
+
+<!-- ============================================================ -->
+<section id="ar">
+  <h2><span class="num">1</span>Autoregression — modelling a waveform one sample at a time</h2>
+  <p class="lead">
+    Any joint distribution over a sequence can be factored, exactly and without
+    approximation, into a product of conditionals by the chain rule of probability. An
+    autoregressive (AR) model simply <em>parameterises each factor with a neural network</em>
+    and reads them left to right in time.
+  </p>
+  <div class="math">
+    $$p(\mathbf{x}) = \prod_{n=1}^{N} p\big(x_n \mid x_1,\dots,x_{n-1}\big) = \prod_{n=1}^{N} p_\theta\big(x_n \mid x_{<n}\big)$$
+  </div>
+  <p>
+    Every sample $x_n$ is predicted from the samples before it, and only those — the model
+    never peeks at the future. Because the factorisation is exact, training is exact too:
+    maximise the log-likelihood of real audio, which for a sequence is just the sum of the
+    per-sample log-probabilities. There is no adversary, no lower bound, no reconstruction
+    surrogate — only a single, honest number to climb.
+  </p>
+  <div class="math">
+    $$\mathcal{L}(\theta) = -\sum_{n=1}^{N} \log p_\theta\big(x_n \mid x_{<n}\big)$$
+  </div>
+
+  <h3>Teacher forcing — why training is fast but sampling is not</h3>
+  <p>
+    During training the true $x_{<n}$ are already known, so <em>every</em> conditional can be
+    evaluated in parallel across the whole clip in one forward pass — this is
+    <strong>teacher forcing</strong>. Generation is the opposite: the model's own outputs
+    become its next inputs, so the $N$ conditionals must be evaluated <em>in sequence</em>.
+    That asymmetry — parallel to train, serial to sample — is the defining tension of the
+    entire family, and Section&nbsp;6 measures its cost.
+  </p>
+
+  <div class="note">
+    <strong>Lineage.</strong> WaveNet is the audio member of a family born in vision:
+    van den Oord's <em>PixelRNN / PixelCNN</em> modelled an image pixel-by-pixel with exactly
+    this factorisation and a categorical output. WaveNet transplanted the idea to the time
+    axis and swapped the masked 2-D convolutions for <em>dilated causal 1-D</em> ones. The
+    softmax-over-intensities trick came straight across too.
+  </p>
+
+  <details class="expandable"><summary>derivation · why the chain rule is exact and what "teacher forcing" costs</summary>
+    <div class="inner">
+      <p>For any random vector the joint always equals the product of conditionals:
+      $p(x_1,\dots,x_N)=p(x_1)\,p(x_2\mid x_1)\cdots p(x_N\mid x_{<N})$. No independence
+      assumption is made — the ordering (here, time) is a modelling choice, not an
+      approximation. Maximising $\log p(\mathbf{x})=\sum_n \log p_\theta(x_n\mid x_{<n})$ is
+      therefore exact maximum-likelihood estimation.</p>
+      <p>At <em>training</em> time the conditioning context $x_{<n}$ is the ground-truth
+      audio, so a single causal network can output all $N$ predictive distributions at once
+      — cost $O(1)$ sequential passes. At <em>sampling</em> time $x_{<n}$ contains samples the
+      model just produced, so pass $n$ cannot start until pass $n-1$ finishes — cost $O(N)$
+      sequential passes. The training/sampling asymmetry is not an implementation detail; it
+      is baked into the factorisation, and every "fast AR" method in Section&nbsp;7 is an
+      attack on it.</p>
+    </div>
+  </details>
+</section>
+
+<!-- ============================================================ -->
+<section id="dilation">
+  <h2><span class="num">2</span>Dilated causal convolutions — memory without recurrence</h2>
+  <p class="lead">
+    To keep the pitch of a voice stable, the prediction of $x_n$ must depend on samples
+    thousands back — a full pitch period and more. WaveNet buys that reach without an RNN by
+    stacking <strong>dilated causal convolutions</strong>: the kernel taps skip over a gap
+    that <em>doubles</em> every layer.
+  </p>
+  <p>
+    <em>Causal</em> means the convolution at time $n$ reads only $x_{\le n}$ (implemented by
+    left-padding), so the AR ordering is never violated. <em>Dilated</em> means layer
+    $\ell$ spaces its $k$ taps $d_\ell = 2^{\ell}$ samples apart. Stacking $L$ such layers
+    with kernel $k=2$ gives a receptive field that grows exponentially in depth while the
+    compute grows only linearly:
+  </p>
+  <div class="math">
+    $$r = 1 + \sum_{\ell=0}^{L-1}(k-1)\,2^{\ell} = 1 + (k-1)\big(2^{L}-1\big) \;\xrightarrow{k=2}\; 2^{L}$$
+  </div>
+  <p>
+    Ten layers already reach back $2^{10}=1024$ samples ($64$&nbsp;ms at 16&nbsp;kHz); WaveNet
+    repeats several such dilation <em>stacks</em> (each resetting $1,2,4,\dots,512$) to reach
+    hundreds of milliseconds. Part&nbsp;1's receptive-field playground visualises this
+    dependency cone; here we take it as given and build the block that lives on top of it.
+  </p>
+  <div class="note">
+    <strong>No recurrence, on purpose.</strong> SampleRNN (Section&nbsp;7) reaches the same
+    context with a hierarchy of RNNs; WaveNet's convolutional route is fully parallel at
+    train time and has no hidden-state bottleneck — the trade is a fixed, finite receptive
+    field rather than an unbounded one.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="block">
+  <h2><span class="num">3</span>The residual block — gated activations, skips, and conditioning</h2>
+  <p class="lead">
+    WaveNet is a stack of identical residual blocks. Each one takes the residual stream,
+    runs a dilated causal convolution, passes it through a <strong>gated activation
+    unit</strong>, and splits the result two ways: back into the residual stream, and out to
+    a global skip sum. Step through the diagram — or hover a stage — to see the signal flow.
+  </p>
+
+  <div class="viz">
+    <canvas id="wnViz" height="340" aria-label="Anatomy of one WaveNet residual block: dilated causal conv, gated activation, 1x1 conv, residual and skip"></canvas>
+    <div class="controls">
+      <button id="wnRun">▶ Flow a pulse</button>
+      <button id="wnStep" class="btn-outline">Step ▸</button>
+    </div>
+    <div class="viz-caption" id="wnCap">Hover a stage or press Step to read what it does. Press Flow to send a signal pulse through the block.</div>
+  </div>
+
+  <h3>The gated activation unit</h3>
+  <p>
+    Instead of a ReLU, WaveNet borrows the multiplicative gate of the LSTM (via PixelCNN): a
+    $\tanh$ "content" branch is modulated element-wise by a $\sigma$ "gate" branch, both fed
+    by their own convolution of the same input.
+  </p>
+  <div class="math">
+    $$\mathbf{z} = \tanh\!\big(W_{f,k}\!*\mathbf{x}\big)\;\odot\;\sigma\!\big(W_{g,k}\!*\mathbf{x}\big)$$
+  </div>
+  <p>
+    The sigmoid, bounded in $(0,1)$, acts as a learned valve deciding how much of each
+    $\tanh$ feature survives — empirically this outperformed a plain rectifier for modelling
+    audio. The gated output is then projected by a $1\times1$ convolution (a per-timestep
+    linear layer) into two tensors: one added back to the block input (the <em>residual</em>),
+    one accumulated into the <em>skip</em> path. After the final block all skip
+    contributions are summed and passed through <code>ReLU · 1×1 · ReLU · 1×1 · softmax</code>.
+  </p>
+
+  <h3>Conditioning — how a waveform model becomes a voice</h3>
+  <p>
+    An unconditioned WaveNet babbles plausible-but-meaningless speech. To say <em>words</em>,
+    the gate is conditioned on side information $\mathbf{h}$. WaveNet distinguishes two kinds:
+  </p>
+  <div class="grid-2">
+    <div class="note"><strong>Global conditioning.</strong> A single vector for the whole clip — e.g. a speaker embedding. It is broadcast to every timestep: it biases <em>who</em> is speaking, the timbre and register.</div>
+    <div class="warn"><strong>Local conditioning.</strong> A time series $\mathbf{h}_n$ — e.g. linguistic features or a mel spectrogram — upsampled to the audio rate. It steers <em>what</em> is said, moment to moment. This is the hook that makes WaveNet a neural vocoder (Part&nbsp;3).</div>
+  </div>
+  <div class="math">
+    $$\mathbf{z} = \tanh\!\big(W_{f,k}\!*\mathbf{x} + V_{f,k}\!*\mathbf{h}\big)\;\odot\;\sigma\!\big(W_{g,k}\!*\mathbf{x} + V_{g,k}\!*\mathbf{h}\big)$$
+  </div>
+
+  <details class="expandable"><summary>why residual + skip, and not just a deep stack</summary>
+    <div class="inner">
+      <p>Two connections do two jobs. The <strong>residual</strong> path (adding the block's
+      output back to its input) is the He-et-al. identity shortcut: it keeps gradients healthy
+      through 30–40 layers so the deep dilation stack is trainable at all. The
+      <strong>skip</strong> path is a <em>read-out</em>: every block writes a summand into a
+      shared bus that feeds the output head, so the final prediction can draw on features from
+      every dilation scale at once — fine pitch structure from the shallow, low-dilation layers
+      and slow prosody from the deep, high-dilation ones. Residual carries information
+      <em>forward through depth</em>; skip carries it <em>sideways to the output</em>.</p>
+    </div>
+  </details>
+</section>
+
+<!-- ============================================================ -->
+<section id="output">
+  <h2><span class="num">4</span>The output — a softmax over μ-law levels</h2>
+  <p class="lead">
+    WaveNet does not regress a real-valued amplitude; it <em>classifies</em>. The next sample
+    is drawn from a categorical distribution over a finite alphabet of levels — a choice that
+    lets the model represent arbitrarily multi-modal, skewed conditionals instead of being
+    pinned to a single Gaussian mean.
+  </p>
+  <p>
+    Raw 16-bit audio has 65,536 levels — a hopeless softmax. WaveNet first companded the
+    signal with the telephony <strong>μ-law</strong> curve and quantised to just
+    <strong>256 levels</strong> (8 bits). Because the curve is steep near zero, the ear's
+    logarithmic loudness sensitivity is respected and the quiet detail — where most of speech
+    lives — survives the coarse quantisation (Part&nbsp;1 derives the constant-SQNR property).
+  </p>
+  <div class="math">
+    $$F(x) = \operatorname{sign}(x)\,\frac{\ln\!\left(1 + \mu\,|x|\right)}{\ln(1+\mu)},\qquad \mu = 255,\quad x\in[-1,1]$$
+  </div>
+  <p>
+    So the head emits a 256-way softmax; the loss is ordinary cross-entropy against the
+    μ-law bin of the true sample. It is worth pausing on what this buys: the conditional
+    $p_\theta(x_n\mid x_{<n})$ can be <em>bimodal</em> — "this could be the top of the pitch
+    period or the start of a new one" — something a mean-squared-error regressor can never
+    express without averaging the two into mush.
+  </p>
+  <div class="note">
+    <strong>Later refinements.</strong> The 256-way softmax ignores the ordinal structure of
+    amplitude (bin 130 is "near" bin 131). WaveRNN and the follow-up WaveNets replaced it with
+    a <em>discretised mixture of logistics</em> or a dual 8-bit (coarse+fine) split, cutting
+    the output width while restoring ordinality. The categorical idea, though, is the through-line.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="sampling">
+  <h2><span class="num">5</span>Sampling — sequential, stochastic, and prone to drift</h2>
+  <p class="lead">
+    Here is autoregression made audible. The sampler below seeds a few cycles of a tone, then
+    generates every subsequent sample <em>in order</em>: a low-order linear predictor proposes
+    a mean, and the next sample is a temperature-controlled categorical draw over 64 μ-law
+    bins centred on it. Then it is fed back in and the loop repeats — exactly WaveNet's
+    generation loop, in miniature.
+  </p>
+
+  <div class="viz">
+    <canvas id="arViz" height="260" aria-label="Live sequential autoregressive sampler generating a waveform sample by sample"></canvas>
+    <div class="controls">
+      <label>temperature <input type="range" id="arTemp" min="0" max="2" step="0.05" value="0.25"><span class="val" id="arTempV">0.25</span></label>
+      <label><input type="checkbox" id="arTF" style="accent-color:var(--accent)"> teacher-forcing</label>
+      <button id="arGen">▶ Generate &amp; play</button>
+    </div>
+    <div class="viz-caption" id="arCap">Temperature 0 = greedy (a rock-steady pitch); raise it and the categorical draw takes over until the tone dissolves into noise.</div>
+  </div>
+
+  <p>
+    <strong>Temperature</strong> is the softmax sharpness. At $T=0$ the draw collapses to the
+    predictor's argmax — deterministic, a pure resonator, a stable pitch. As $T$ rises the
+    distribution flattens, draws stray from the prediction, and by $T\!\approx\!1$ the output
+    is broadband noise. This is the same knob that trades a language model's coherence for its
+    creativity; in audio it trades <em>tone</em> for <em>hiss</em>.
+  </p>
+  <p>
+    <strong>Teacher-forcing vs free-running</strong> exposes the family's Achilles heel.
+    <em>Free-running</em> (the box unchecked) feeds the model its own outputs, so at any
+    temperature above zero small errors compound — the pitch wanders and can collapse. Tick
+    <em>teacher-forcing</em> and the predictor is fed the clean reference instead: the same
+    temperature now only sprinkles noise on a pitch that never drifts. That gap is
+    <strong>exposure bias</strong> — the model is trained on ground-truth context it never
+    sees at generation time.
+  </p>
+  <div class="warn">
+    <strong>Try it.</strong> Set $T\approx0.6$ and toggle the box. Free-running: the tone
+    degrades and destabilises as errors accumulate. Teacher-forcing: rock-steady pitch with a
+    little grain. Same model, same temperature — the only difference is whether the context is
+    honest.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="cost">
+  <h2><span class="num">6</span>The cost — exponential context, linear-in-samples generation</h2>
+  <p class="lead">
+    Dilation makes <em>context</em> almost free: each added layer doubles the receptive field.
+    But it does nothing for <em>speed</em>. Producing one second of 16&nbsp;kHz audio requires
+    16,000 forward passes that cannot be reordered or batched across time — each needs the
+    sample the previous one just made. Slide the depth and watch the asymmetry.
+  </p>
+
+  <div class="viz">
+    <canvas id="costViz" height="300" aria-label="Contrast between exponentially growing receptive field and constant sequential generation cost"></canvas>
+    <div class="controls">
+      <label>layers / stack <input type="range" id="costL" min="1" max="11" step="1" value="8"><span class="val" id="costLV">8</span></label>
+      <label>stacks <input type="range" id="costStacks" min="1" max="5" step="1" value="3"><span class="val" id="costStacksV">3</span></label>
+    </div>
+    <div class="viz-caption" id="costCap">Left: receptive field, doubling per layer. Right: the generation cost — fixed at the sample rate, no matter how deep.</div>
+  </div>
+  <div class="grid-2">
+    <div class="note"><strong>Context is cheap.</strong> Receptive field <span id="costRF" style="color:var(--accent)">—</span> — reachable from a network only tens of layers deep, because depth buys context <em>exponentially</em>.</div>
+    <div class="warn"><strong>Time is not.</strong> Generation cost <span id="costPass" style="color:var(--accent4)">—</span> sequential forward passes — <em>independent of depth</em>. The original WaveNet took minutes to synthesise a second of audio. Escaping this is the story of Parts&nbsp;3 and&nbsp;8.</div>
+  </div>
+  <p>
+    The bottleneck is fundamental to the factorisation, not the architecture: sample $n$ is a
+    function of sample $n-1$, so the $N$ passes form a dependency chain of length $N$. You can
+    make each pass cheaper (WaveRNN), cache its redundant work (Fast WaveNet), or replace the
+    whole serial loop with a parallel model (Parallel WaveNet, GAN vocoders, diffusion) — but
+    you cannot parallelise the chain itself while keeping the exact AR likelihood.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<section id="successors">
+  <h2><span class="num">7</span>Escaping the bottleneck — Fast WaveNet to Parallel WaveNet</h2>
+  <p class="lead">
+    WaveNet's quality was immediately state of the art and its speed immediately unusable. The
+    two years that followed were a concentrated assault on the sequential cost — three
+    distinct strategies, each trading something for throughput.
+  </p>
+
+  <table>
+    <thead><tr><th>Method</th><th>Idea</th><th>What it attacks</th><th>Cost / catch</th></tr></thead>
+    <tbody>
+      <tr><td><strong style="color:var(--accent)">Fast WaveNet</strong></td>
+        <td>Cache each layer's intermediate activations so a new sample reuses prior convolutions instead of recomputing them.</td>
+        <td>Redundant compute per pass — $O(2^{L})\!\to\!O(L)$ per sample.</td>
+        <td>Still strictly one sample at a time; exact same model, just no wasted work.</td></tr>
+      <tr><td><strong style="color:var(--accent5)">SampleRNN</strong></td>
+        <td>A hierarchy of RNNs at different clock rates: slow top tiers set coarse structure, a fast bottom tier emits samples.</td>
+        <td>Long-range context, cheaply — via recurrence instead of deep dilation.</td>
+        <td>Still autoregressive at the sample tier; sequential sampling remains.</td></tr>
+      <tr><td><strong style="color:var(--accent3)">WaveRNN</strong></td>
+        <td>A single sparse GRU with a dual (coarse+fine) 8-bit softmax; weight pruning + <em>subscaling</em> to batch and fold the loop.</td>
+        <td>Per-sample compute and memory — small enough to run faster-than-real-time on a phone CPU.</td>
+        <td>Sparsity and subscaling add engineering complexity; still fundamentally AR.</td></tr>
+      <tr><td><strong style="color:var(--accent2)">Parallel WaveNet</strong></td>
+        <td>Distil the trained AR "teacher" into an inverse-autoregressive-flow "student" that generates all samples in one parallel pass.</td>
+        <td>The sequential chain itself — sampling becomes $O(1)$ passes.</td>
+        <td>Two-stage training; needs <em>probability density distillation</em> to match the teacher.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Parallel WaveNet &amp; probability density distillation</h3>
+  <p>
+    The cleverest of these deserves a closer look. An <strong>inverse autoregressive flow</strong>
+    (IAF) can <em>sample</em> in parallel — every output is an invertible transform of an
+    independent noise sample — but it cannot cheaply <em>score</em> arbitrary data, the mirror
+    image of WaveNet's problem. Parallel WaveNet trains an IAF <em>student</em> to imitate the
+    slow AR <em>teacher</em> by minimising the KL divergence between them, evaluated on the
+    student's own samples (which it can score, and the teacher can too):
+  </p>
+  <div class="math">
+    $$D_{\mathrm{KL}}\!\big(p_{\text{student}}\,\big\|\,p_{\text{teacher}}\big) = \mathbb{E}_{\hat{x}\sim p_S}\big[\log p_S(\hat{x}) - \log p_T(\hat{x})\big]$$
+  </div>
+  <p>
+    The result generates audio faster than real time at the teacher's quality — the pattern
+    of "train a slow exact model, distil into a fast parallel one" that later reappears
+    throughout the field (consistency models, distilled diffusion in Part&nbsp;8). The GAN
+    vocoders of Part&nbsp;3 take the more direct route: skip the AR teacher entirely and learn
+    a one-pass generator adversarially.
+  </p>
+  <blockquote>
+    Read the sequence as a single arc: WaveNet proved raw-audio modelling is possible;
+    Fast&nbsp;WaveNet and WaveRNN made it cheaper without changing the maths; SampleRNN found
+    context through hierarchy; and Parallel WaveNet finally broke the serial chain by
+    distillation. Everything after is a different bargain with the same $\prod_n p(x_n\mid x_{<n})$.
+  </blockquote>
+</section>
+
+<!-- ============================================================ -->
+<section id="timeline">
+  <h2><span class="num">8</span>Two years that reshaped audio, 2016 → 2018</h2>
+  <p>
+    The autoregressive era of raw-audio synthesis is astonishingly compressed: from the first
+    working model to real-time distillation in barely two years.
+  </p>
+  <div class="timeline">
+    <div class="timeline-item"><div class="timeline-year">2016 · early</div><div class="timeline-text"><strong>PixelRNN / PixelCNN</strong> establish autoregressive generation of images with a categorical output and masked convolutions — the direct ancestor of WaveNet. <span class="pill">lineage</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">2016 · Sept</div><div class="timeline-text"><strong>WaveNet</strong> (van den Oord et&nbsp;al.) models raw audio sample-by-sample with dilated causal convolutions, gated activations, and a 256-way μ-law softmax — a leap in naturalness for TTS. <span class="pill">this part</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">2016 · late</div><div class="timeline-text"><strong>Fast WaveNet</strong> caches convolutional activations, cutting per-sample generation from $O(2^{L})$ to $O(L)$ without changing the model. <span class="pill">§7</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">2017 · Feb</div><div class="timeline-text"><strong>SampleRNN</strong> reaches long context with a multi-tier hierarchy of RNNs running at different clock rates. <span class="pill">§7</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">2017 · Nov</div><div class="timeline-text"><strong>Parallel WaveNet</strong> distils the AR teacher into an inverse-autoregressive-flow student via probability density distillation — faster-than-real-time, and shipped in Google Assistant. <span class="pill">§7</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">2018</div><div class="timeline-text"><strong>WaveRNN</strong> compresses everything into a single sparse GRU with a dual softmax and subscaling — high-quality neural audio on a mobile CPU. The AR vocoder becomes practical. <span class="pill">§7</span></div></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="next">
+  <h2><span class="num">→</span>Where to go next</h2>
+  <p>
+    You now have the autoregressive playbook: the exact factorisation, the dilated stack that
+    gives it memory, the gated residual block, the μ-law softmax, and the sequential-sampling
+    tax that made everyone want out. The next part is the first clean escape — adversarial
+    vocoders that generate a whole waveform in a single parallel pass.
+  </p>
+  <div class="xref">
+    <a href="https://brendanjameslynskey.github.io/Neural_Sound_Synthesis/"><span class="k">Series hub</span>All twelve parts &middot; the interactive map</a>
+    <a href="https://brendanjameslynskey.github.io/Neural_Sound_Synthesis_01_Foundations_and_Landscape/"><span class="k">Part 1 ←</span>Foundations &amp; the Landscape</a>
+    <a href="https://brendanjameslynskey.github.io/Neural_Sound_Synthesis_03_Neural_Vocoders_GAN/"><span class="k">Part 3 →</span>Neural Vocoders (GAN)</a>
+  </div>
+  <div class="references">
+    <h3>References</h3>
+    <ol>
+      <li>van den Oord, A. et&nbsp;al. (2016). <em>WaveNet: A Generative Model for Raw Audio.</em> arXiv:1609.03499.</li>
+      <li>van den Oord, A., Kalchbrenner, N., Kavukcuoglu, K. (2016). <em>Pixel Recurrent Neural Networks.</em> ICML. (PixelRNN.)</li>
+      <li>van den Oord, A. et&nbsp;al. (2016). <em>Conditional Image Generation with PixelCNN Decoders.</em> NeurIPS. (Gated activation unit.)</li>
+      <li>Paine, T.&nbsp;L. et&nbsp;al. (2016). <em>Fast Wavenet Generation Algorithm.</em> arXiv:1611.09482.</li>
+      <li>Mehri, S. et&nbsp;al. (2017). <em>SampleRNN: An Unconditional End-to-End Neural Audio Generation Model.</em> ICLR.</li>
+      <li>van den Oord, A. et&nbsp;al. (2018). <em>Parallel WaveNet: Fast High-Fidelity Speech Synthesis.</em> ICML.</li>
+      <li>Kalchbrenner, N. et&nbsp;al. (2018). <em>Efficient Neural Audio Synthesis.</em> ICML. (WaveRNN, sparsity, subscaling.)</li>
+      <li>ITU-T Recommendation G.711 (1988). <em>Pulse Code Modulation (PCM) of Voice Frequencies.</em> (μ-law companding.)</li>
+    </ol>
+  </div>
+</section>
+
+<footer>
+  <p>
+    Neural Sound Synthesis &middot; Part 2 — Autoregressive Waveform Models<br>
+    Part of the <a href="https://github.com/BrendanJamesLynskey/DSP_and_Music" target="_blank" rel="noopener">DSP &amp; Music</a> collection &middot;
+    single-file HTML/CSS/JS &middot; Web Audio API &middot; KaTeX &middot; no dependencies.
+  </p>
+</footer>
+
+<script>
+(function(){
+"use strict";
+// ── utilities ─────────────────────────────────────────────────
+const DPR=window.devicePixelRatio||1;
+function setupCanvas(c,w,h){ c.width=Math.round(w*DPR); c.height=Math.round(h*DPR); c.style.height=h+'px'; const x=c.getContext('2d'); x.setTransform(DPR,0,0,DPR,0,0); return x; }
+function fitWidth(c){ const r=c.parentElement.getBoundingClientRect(); return Math.max(320,Math.floor(r.width)); }
+let audioCtx=null;
+function actx(){ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); return audioCtx; }
+function play(samples,sr){ const a=actx(); const b=a.createBuffer(1,samples.length,sr); b.getChannelData(0).set(samples); const s=a.createBufferSource(); s.buffer=b; const g=a.createGain(); g.gain.value=0.9; s.connect(g); g.connect(a.destination); s.start(); return s; }
+function fade(buf,n){ const N=buf.length,k=Math.min(n,N>>1); for(let i=0;i<k;i++){ buf[i]*=i/k; buf[N-1-i]*=i/k; } return buf; }
+
+const ACCENT=()=>getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#4a9de8';
+
+// ── DEMO 1: WaveNet residual-block anatomy ────────────────────
+(function wnBlock(){
+  const c=document.getElementById('wnViz'); if(!c) return;
+  const cap=document.getElementById('wnCap');
+  const H=340; let W=fitWidth(c); let ctx=setupCanvas(c,W,H);
+  const LBL=['input\nxₗ','dilated\ncausal conv','tanh ⊙ σ\ngated unit','1×1\nconv','⊕\nresidual','skip'];
+  const DESC=[
+    'INPUT xₗ — the residual stream entering block ℓ: a running representation of the waveform generated so far. Its width (channels) is preserved end to end so blocks can be stacked.',
+    'CAUSAL DILATED CONV — mixes the current step with earlier steps spaced 2ˡ samples apart. Causal = it never reads the future, preserving the autoregressive ordering. This is the only place the past enters the block.',
+    'GATED ACTIVATION UNIT — z = tanh(W_f∗x) ⊙ σ(W_g∗x). The σ branch is a learned gate multiplying the tanh content branch, a multiplicative nonlinearity taken from LSTM / PixelCNN. Conditioning h is injected inside both convolutions.',
+    '1×1 CONV — a per-timestep linear projection of the gated output z, producing two tensors: one at the residual width, one at the skip width.',
+    'RESIDUAL ADD ⊕ — the projection is added back to the block input. This identity shortcut lets 30–40 blocks train without vanishing gradients; the sum feeds the next block.',
+    'SKIP CONNECTION — a second tap taken from every block. All skips are summed, then passed through ReLU · 1×1 · ReLU · 1×1 and a 256-way softmax to give p(xₙ | x₍<n₎).'
+  ];
+  let active=0, hover=-1, flow=0, running=false, raf=null, box=[];
+  function layout(){
+    box=[]; const midY=H*0.50, topY=H*0.15; const m=22; const gap=(W-2*m)/5;
+    for(let i=0;i<5;i++){ const cx=m+gap*i+gap*0.5; box.push({x:cx-gap*0.38,y:midY-26,w:gap*0.76,h:52,cx,cy:midY}); }
+    const s=box[3]; box.push({x:s.cx-gap*0.38,y:topY-16,w:gap*0.76,h:34,cx:s.cx,cy:topY,skip:true});
+  }
+  function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  function arrow(x1,y1,x2,y2,col){ ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); const a=Math.atan2(y2-y1,x2-x1); ctx.beginPath(); ctx.moveTo(x2,y2); ctx.lineTo(x2-7*Math.cos(a-0.4),y2-7*Math.sin(a-0.4)); ctx.lineTo(x2-7*Math.cos(a+0.4),y2-7*Math.sin(a+0.4)); ctx.closePath(); ctx.fill(); }
+  function draw(){
+    const ac=ACCENT(); ctx.fillStyle='#12141c'; ctx.fillRect(0,0,W,H);
+    const hl = hover>=0?hover:(running?Math.min(4,Math.round(flow)):active);
+    ctx.fillStyle='#8a8d9a'; ctx.font="10px 'Lucida Console',monospace"; ctx.textAlign='left';
+    ctx.fillText('ONE WAVENET RESIDUAL BLOCK', 14, 18);
+    // main chain connectors 0->1->2->3->4
+    for(let i=0;i<4;i++){ const a=box[i],b=box[i+1]; arrow(a.x+a.w, a.cy, b.x, b.cy, 'rgba(160,164,180,0.55)'); }
+    // residual skip-over line from input to residual add
+    ctx.strokeStyle='rgba(139,123,240,0.55)'; ctx.setLineDash([4,3]); ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.moveTo(box[0].cx, box[0].y); ctx.lineTo(box[0].cx, box[0].y-18); ctx.lineTo(box[4].cx, box[0].y-18); ctx.lineTo(box[4].cx, box[4].y); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#8b7bf0'; ctx.font="9px 'Lucida Console',monospace"; ctx.textAlign='center'; ctx.fillText('identity shortcut', (box[0].cx+box[4].cx)/2, box[0].y-22);
+    // branch up to skip from 1x1
+    const s=box[5], b3=box[3];
+    arrow(b3.cx, b3.y, s.cx, s.y+s.h, 'rgba(92,232,154,0.65)');
+    ctx.fillStyle='#5ce89a'; ctx.fillText('Σ skips → softmax', s.cx, s.y-6);
+    // output arrow
+    arrow(box[4].x+box[4].w, box[4].cy, box[4].x+box[4].w+18, box[4].cy, ac);
+    ctx.fillStyle='#8a8d9a'; ctx.fillText('next →', box[4].x+box[4].w+18, box[4].cy-8);
+    // boxes
+    box.forEach((bx,i)=>{
+      const lit=(i===hl);
+      ctx.fillStyle= lit?'rgba(74,157,232,0.18)':'#1a1d2a';
+      ctx.strokeStyle= lit?ac:'rgba(120,124,140,0.55)'; ctx.lineWidth= lit?2:1;
+      roundRect(bx.x,bx.y,bx.w,bx.h,5); ctx.fill(); ctx.stroke();
+      ctx.fillStyle= lit?ac:'#c9cbd6'; ctx.font="11px 'Lucida Console',monospace"; ctx.textAlign='center';
+      const lines=LBL[i].split('\n'); lines.forEach((ln,li)=>ctx.fillText(ln,bx.cx,bx.cy+4+(li-(lines.length-1)/2)*12));
+    });
+    // pulse dot
+    if(running){ const seg=Math.min(4,Math.floor(flow)); const fr=flow-Math.floor(flow); const a=box[seg], b=box[Math.min(4,seg+1)]; const x=a.cx+(b.cx-a.cx)*fr, y=a.cy+(b.cy-a.cy)*fr; ctx.globalAlpha=0.3; ctx.fillStyle=ac; ctx.beginPath(); ctx.arc(x,y,12,0,7); ctx.fill(); ctx.globalAlpha=1; ctx.beginPath(); ctx.arc(x,y,6,0,7); ctx.fill(); }
+    cap.textContent=DESC[hl];
+  }
+  function step(){ running=false; cancelAnimationFrame(raf); active=(active+1)%6; draw(); }
+  function frame(){ flow+=0.045; if(flow>=4){ flow=4; running=false; draw(); return; } draw(); raf=requestAnimationFrame(frame); }
+  function run(){ cancelAnimationFrame(raf); hover=-1; flow=0; running=true; frame(); }
+  c.addEventListener('mousemove',e=>{ const r=c.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top; let h=-1; for(let i=0;i<box.length;i++){ const b=box[i]; if(mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h){ h=i; break; } } if(h!==hover){ hover=h; if(!running) draw(); } });
+  c.addEventListener('mouseleave',()=>{ hover=-1; if(!running) draw(); });
+  document.getElementById('wnStep').addEventListener('click',step);
+  document.getElementById('wnRun').addEventListener('click',run);
+  window.addEventListener('resize',()=>{ W=fitWidth(c); ctx=setupCanvas(c,W,H); layout(); draw(); });
+  layout(); draw();
+})();
+
+// ── DEMO 2: live autoregressive sampler ───────────────────────
+(function arSampler(){
+  const c=document.getElementById('arViz'); if(!c) return;
+  const cap=document.getElementById('arCap');
+  const H=260; let W=fitWidth(c); let ctx=setupCanvas(c,W,H);
+  const tempEl=document.getElementById('arTemp'), tempV=document.getElementById('arTempV'), tfEl=document.getElementById('arTF');
+  const SR=16000, f0=150, w0=2*Math.PI*f0/SR, r=0.9999, a1=2*r*Math.cos(w0), a2=-r*r;
+  const N=Math.floor(SR*0.55), BINS=64, MU=255;
+  const enc=x=>Math.sign(x)*Math.log(1+MU*Math.abs(x))/Math.log(1+MU);
+  const dec=y=>Math.sign(y)*(1/MU)*(Math.pow(1+MU,Math.abs(y))-1);
+  const clamp=x=>Math.max(-1,Math.min(1,x));
+  const muBin=x=>Math.max(0,Math.min(BINS-1,Math.round((enc(clamp(x))+1)/2*(BINS-1))));
+  const binVal=k=>dec(k/(BINS-1)*2-1);
+  const seedLen=Math.round(SR/f0*2);
+  let out=new Float32Array(N), raf=null, reveal=N, t0=0;
+  function generate(){
+    const T=+tempEl.value, tf=tfEl.checked; const sigma0=5;
+    out=new Float32Array(N);
+    for(let i=0;i<seedLen;i++) out[i]=Math.sin(w0*i)*0.7;
+    for(let n=seedLen;n<N;n++){
+      const c1= tf? Math.sin(w0*(n-1))*0.7 : out[n-1];
+      const c2= tf? Math.sin(w0*(n-2))*0.7 : out[n-2];
+      const mu=a1*c1+a2*c2; const center=muBin(mu);
+      let k;
+      if(T<=0.02){ k=center; }
+      else{
+        const sg=sigma0*T; const lg=new Float32Array(BINS); let mx=-1e9;
+        for(let j=0;j<BINS;j++){ const d=(j-center)/sg; lg[j]=-0.5*d*d; if(lg[j]>mx) mx=lg[j]; }
+        let sum=0; for(let j=0;j<BINS;j++){ lg[j]=Math.exp(lg[j]-mx); sum+=lg[j]; }
+        let rnd=Math.random()*sum, acc=0; k=BINS-1;
+        for(let j=0;j<BINS;j++){ acc+=lg[j]; if(rnd<=acc){ k=j; break; } }
+      }
+      out[n]=clamp(binVal(k));
+    }
+    fade(out,120);
+  }
+  function drawWave(upto){
+    const ac=ACCENT(); ctx.fillStyle='#12141c'; ctx.fillRect(0,0,W,H);
+    const padX=16, plotW=W-2*padX, mid=H*0.52, amp=H*0.36;
+    ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.beginPath(); ctx.moveTo(padX,mid); ctx.lineTo(padX+plotW,mid); ctx.stroke();
+    const sx=padX+seedLen/N*plotW;
+    ctx.strokeStyle='rgba(139,123,240,0.55)'; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(sx,mid-amp); ctx.lineTo(sx,mid+amp); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#8b7bf0'; ctx.font="9px 'Lucida Console',monospace"; ctx.textAlign='left'; ctx.fillText('seed', padX+2, mid+amp-2);
+    ctx.fillText('generated →', sx+4, mid+amp-2);
+    ctx.strokeStyle=ac; ctx.lineWidth=1.2; ctx.beginPath();
+    const shown=Math.max(1,Math.min(N,upto)); let started=false;
+    for(let px=0;px<plotW;px++){ const idx=Math.floor(px/plotW*N); if(idx>=shown) break; const v=out[idx]||0; const y=mid-v*amp; if(!started){ ctx.moveTo(padX+px,y); started=true; } else ctx.lineTo(padX+px,y); }
+    ctx.stroke();
+    ctx.fillStyle='#8a8d9a'; ctx.font="10px 'Lucida Console',monospace"; ctx.textAlign='left';
+    ctx.fillText('T='+(+tempEl.value).toFixed(2)+'  ·  '+(tfEl.checked?'teacher-forcing':'free-running')+'  ·  '+BINS+' µ-law bins  ·  '+N+' samples @16k', padX, 14);
+  }
+  function animate(now){ if(!t0) t0=now; const el=(now-t0)/1000; reveal=Math.min(N,Math.floor(el/0.9*N)); drawWave(reveal); if(reveal<N) raf=requestAnimationFrame(animate); }
+  function gen(){
+    generate(); play(out.slice(),SR);
+    cancelAnimationFrame(raf); t0=0; reveal=0; raf=requestAnimationFrame(animate);
+    const T=+tempEl.value;
+    cap.textContent = T<=0.02? 'Greedy (T=0): the linear predictor runs as a pure resonator — a rock-steady pitch, deterministic every time.'
+      : T<0.5? 'Low temperature: the categorical draws hug the prediction — a stable pitch with a little grain.'
+      : 'High temperature: the categorical draw dominates the predictor — the pitch dissolves toward noise.';
+  }
+  tempEl.addEventListener('input',()=>{ tempV.textContent=(+tempEl.value).toFixed(2); drawWave(N); });
+  tfEl.addEventListener('change',()=>drawWave(reveal<N?reveal:N));
+  document.getElementById('arGen').addEventListener('click',gen);
+  window.addEventListener('resize',()=>{ W=fitWidth(c); ctx=setupCanvas(c,W,H); drawWave(reveal<N?reveal:N); });
+  tempV.textContent=(+tempEl.value).toFixed(2);
+  generate(); drawWave(N);
+})();
+
+// ── DEMO 3: dilation reach vs generation cost ─────────────────
+(function cost(){
+  const c=document.getElementById('costViz'); if(!c) return;
+  const cap=document.getElementById('costCap');
+  const H=300; let W=fitWidth(c); let ctx=setupCanvas(c,W,H);
+  const Lel=document.getElementById('costL'), LV=document.getElementById('costLV');
+  const stacksEl=document.getElementById('costStacks'), stV=document.getElementById('costStacksV');
+  const rfEl=document.getElementById('costRF'), passEl=document.getElementById('costPass');
+  const SR=16000;
+  function wrap(t,x,y,maxW,lh){ const words=t.split(' '); let line='',yy=y; ctx.textAlign='left'; for(const w of words){ const test=line+w+' '; if(ctx.measureText(test).width>maxW && line){ ctx.fillText(line.trim(),x,yy); line=w+' '; yy+=lh; } else line=test; } ctx.fillText(line.trim(),x,yy); }
+  function draw(){
+    const L=+Lel.value, stacks=+stacksEl.value; LV.textContent=L; stV.textContent=stacks;
+    const rf=1+stacks*(Math.pow(2,L)-1); const ms=rf/SR*1000;
+    const ac=ACCENT(); ctx.fillStyle='#12141c'; ctx.fillRect(0,0,W,H);
+    const splitX=W*0.52;
+    // LEFT — receptive field bars (log axis => linear-height bars = doubling)
+    ctx.fillStyle='#8a8d9a'; ctx.font="10px 'Lucida Console',monospace"; ctx.textAlign='left';
+    ctx.fillText('RECEPTIVE FIELD — ×2 per layer', 14, 16);
+    const bx0=18, plotR=splitX-34, bw=plotR/L, base=H-40, maxH=H-96;
+    for(let l=1;l<=L;l++){ const h=maxH*(l/L); ctx.fillStyle= l===L? ac : 'rgba(74,157,232,0.35)'; ctx.fillRect(bx0+(l-1)*bw+1, base-h, Math.max(2,bw-2), h); }
+    ctx.strokeStyle='rgba(255,255,255,0.10)'; ctx.beginPath(); ctx.moveTo(bx0,base); ctx.lineTo(bx0+plotR,base); ctx.stroke();
+    ctx.fillStyle='#c9cbd6'; ctx.font="9px 'Lucida Console',monospace"; ctx.fillText('layer 1', bx0, base+13); ctx.textAlign='right'; ctx.fillText('layer '+L, bx0+plotR, base+13); ctx.textAlign='left';
+    ctx.fillStyle=ac; ctx.font="11px 'Lucida Console',monospace";
+    ctx.fillText('context = '+rf.toLocaleString()+' samples', bx0, 34);
+    ctx.fillText('= '+ms.toFixed(1)+' ms @ 16 kHz  ('+stacks+' stack'+(stacks>1?'s':'')+')', bx0, 48);
+    // divider
+    ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.beginPath(); ctx.moveTo(splitX,18); ctx.lineTo(splitX,H-16); ctx.stroke();
+    // RIGHT — generation cost, constant
+    const rx=splitX+16, barW=W-rx-16;
+    ctx.fillStyle='#8a8d9a'; ctx.font="10px 'Lucida Console',monospace"; ctx.fillText('GENERATION COST — independent of depth', rx, 16);
+    ctx.fillStyle='#e85a7a'; ctx.fillRect(rx, 44, barW, 32);
+    ctx.fillStyle='#12141c'; ctx.font="12px 'Lucida Console',monospace"; ctx.textAlign='left'; ctx.fillText(SR.toLocaleString()+' sequential passes / s', rx+8, 64);
+    const pw=Math.max(5, barW/SR*80);
+    ctx.fillStyle='rgba(92,232,154,0.85)'; ctx.fillRect(rx, 96, pw, 32);
+    ctx.fillStyle='#5ce89a'; ctx.font="10px 'Lucida Console',monospace"; ctx.fillText('GAN / flow: 1 parallel pass  (Part 3)', rx+pw+6, 116);
+    const wall=SR*1/1000; // 1 ms per pass
+    ctx.fillStyle='#e8a44a'; ctx.font="11px 'Lucida Console',monospace"; ctx.fillText('at 1 ms/pass → '+wall.toFixed(0)+' s per 1 s audio', rx, 156);
+    ctx.fillText('('+wall.toFixed(0)+'× slower than real-time)', rx, 172);
+    ctx.fillStyle='#8a8d9a'; ctx.font="10px 'Lucida Console',monospace";
+    wrap('Deeper stacks widen the context for free (left) but add nothing to the '+SR.toLocaleString()+' strictly-ordered passes for one second of audio (right). Context is cheap; time is not.', rx, 198, barW, 14);
+    if(rfEl) rfEl.textContent=rf.toLocaleString()+' samples ('+ms.toFixed(1)+' ms)';
+    if(passEl) passEl.textContent=SR.toLocaleString()+' ';
+  }
+  [Lel,stacksEl].forEach(el=>el.addEventListener('input',draw));
+  window.addEventListener('resize',()=>{ W=fitWidth(c); ctx=setupCanvas(c,W,H); draw(); });
+  draw();
+})();
+
+// ── hero animation: waveform morphing into spectrogram bars ───
+(function hero(){
+  const c=document.getElementById('heroCanvas'); if(!c) return;
+  const W=()=>Math.max(320,document.documentElement.clientWidth);
+  const H=()=>Math.max(400,Math.min(window.innerHeight,900));
+  let ctx=setupCanvas(c,W(),H());
+  const N=200; let ph=0; let last=performance.now();
+  function frame(now){
+    const w=W(),h=H(); if(c.width!==Math.round(w*DPR)||c.height!==Math.round(h*DPR)) ctx=setupCanvas(c,w,h);
+    const dt=Math.min(0.05,(now-last)/1000); last=now; ph+=dt*0.6;
+    ctx.fillStyle='rgba(10,11,15,0.22)'; ctx.fillRect(0,0,w,h);
+    const morph=0.5+0.5*Math.sin(ph*0.5); // 0 = waveform, 1 = bars
+    ctx.strokeStyle='rgba(74,199,232,0.75)'; ctx.lineWidth=1.6;
+    for(let i=0;i<N;i++){
+      const x=i/(N-1)*w;
+      const tt=i*0.12+ph*3;
+      const wav=Math.sin(tt)+0.5*Math.sin(tt*2.01)+0.3*Math.sin(tt*3.03);
+      const env=0.4+0.6*Math.abs(Math.sin(i*0.05+ph));
+      const barTop=h*0.5 - env*h*0.30*(0.5+0.5*Math.sin(i*0.7+ph*2));
+      const wy=h*0.5 - wav*h*0.09;
+      if(morph<0.5){ // waveform line
+        if(i===0){ctx.beginPath(); ctx.moveTo(x,wy);} else ctx.lineTo(x,wy);
+      }
+    }
+    if(morph<0.5) ctx.stroke();
+    if(morph>=0.5){ // spectrogram-ish bars
+      for(let i=0;i<N;i++){ const x=i/(N-1)*w; const env=Math.abs(Math.sin(i*0.09+ph*1.3))*Math.abs(Math.sin(i*0.3+ph)); const hh=env*h*0.34*(morph); ctx.fillStyle=`rgba(${60+env*120|0},${120+env*100|0},${200},${0.15+env*0.5})`; ctx.fillRect(x-1, h*0.5-hh, 3, hh*2); }
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.addEventListener('resize',()=>{ ctx=setupCanvas(c,W(),H()); });
+})();
+
+// ── scroll-spy ────────────────────────────────────────────────
+(function toc(){
+  const links=document.querySelectorAll('nav#toc a');
+  const secs=Array.from(links).map(a=>document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  function onScroll(){ const y=window.scrollY+120; let k=0; for(let i=0;i<secs.length;i++){ if(secs[i].offsetTop<=y) k=i; } links.forEach(a=>a.classList.remove('active')); if(links[k]) links[k].classList.add('active'); }
+  window.addEventListener('scroll',onScroll,{passive:true}); onScroll();
+})();
+})();
+</script>
+</body>
+</html>
